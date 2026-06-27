@@ -1,0 +1,829 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Storm of Darts: Awakening - Canvas MOBA</title>
+    <style>
+        /* --- CSS STYLES --- */
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #121212;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            color: white; user-select: none;
+        }
+        #gameCanvas { display: block; touch-action: none; }
+        
+        /* UI Layers */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        /* HUD Buttons */
+        .hud-panel {
+            position: absolute; bottom: 20px; left: 50%;
+            transform: translateX(-50%); display: flex; gap: 12px;
+            pointer-events: auto;
+        }
+        .skill-box {
+            width: 55px; height: 55px;
+            background: rgba(20, 20, 30, 0.9);
+            border: 2px solid #444; border-radius: 8px;
+            position: relative; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            transition: transform 0.1s;
+        }
+        .skill-box:active { transform: scale(0.95); }
+        .skill-box.active { border-color: #ffd700; box-shadow: 0 0 10px #ffd700; }
+        .skill-box.cooldown { border-color: #ff4444; opacity: 0.6; }
+        .key-hint { font-size: 10px; color: #888; position: absolute; top: 2px; left: 4px; font-weight: bold;}
+        .skill-name { font-size: 9px; text-align: center; margin-top: 14px; color: #ccc;}
+        .cooldown-text { font-size: 22px; color: #fff; position: absolute; font-weight: 900; text-shadow: 0 0 4px #f00;}
+
+        /* Top Bar */
+        #top-bar {
+            position: absolute; top: 0; width: 100%; height: 60px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            display: flex; justify-content: center; align-items: center;
+            gap: 40px; font-size: 24px; font-weight: 800;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+        .score-box { display: flex; flex-direction: column; align-items: center; }
+        .score-num { font-size: 28px; }
+        .blue-team { color: #4488ff; }
+        .red-team { color: #ff4444; }
+        #timer { color: #eee; font-family: monospace; font-size: 20px; margin-top: -15px;}
+
+        /* Stats */
+        #stats-panel {
+            position: absolute; bottom: 90px; left: 50%;
+            transform: translateX(-50%); width: 300px;
+            text-align: center; text-shadow: 1px 1px 2px black;
+        }
+        .bar-wrap { width: 100%; height: 14px; background: #222; margin-bottom: 4px; border-radius: 4px; overflow: hidden; position: relative; border: 1px solid #444;}
+        .hp-fill { height: 100%; background: linear-gradient(90deg, #2ecc71, #27ae60); transition: width 0.2s; }
+        .mp-fill { height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.2s; }
+        .bar-txt { position: absolute; top: 0; width: 100%; text-align: center; font-size: 10px; line-height: 14px; color: rgba(255,255,255,0.9); font-weight: bold;}
+
+        /* Minimap */
+        #minimap-container {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 160px; height: 160px;
+            background: rgba(0,0,0,0.8); border: 2px solid #555;
+            border-radius: 4px; overflow: hidden; pointer-events: auto;
+        }
+
+        /* Menus */
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 100;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center; pointer-events: auto;
+        }
+        .hidden { display: none !important; }
+        h1 { font-size: 56px; color: #f1c40f; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 4px; text-shadow: 0 0 20px rgba(241, 196, 15, 0.5); }
+        .btn {
+            background: linear-gradient(45deg, #2980b9, #3498db);
+            color: white; border: none; padding: 15px 50px;
+            font-size: 20px; font-weight: bold; border-radius: 30px;
+            cursor: pointer; margin-top: 20px;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+            transition: 0.2s;
+        }
+        .btn:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6); }
+
+        #kill-feed { position: absolute; top: 80px; right: 20px; display: flex; flex-direction: column; align-items: flex-end; }
+        .kill-msg {
+            background: linear-gradient(90deg, rgba(0,0,0,0), rgba(0,0,0,0.8));
+            color: #fff; padding: 5px 15px; margin-bottom: 5px;
+            border-right: 3px solid #f1c40f; font-size: 14px;
+            animation: fadeOut 4s forwards;
+        }
+        @keyframes fadeOut { 0% {opacity:0; transform:translateX(20px);} 10% {opacity:1; transform:translateX(0);} 80% {opacity:1;} 100% {opacity:0;} }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="top-bar">
+            <div class="score-box blue-team"><span class="score-num" id="score-blue">0</span></div>
+            <div id="timer">00:00</div>
+            <div class="score-box red-team"><span class="score-num" id="score-red">0</span></div>
+        </div>
+
+        <div id="kill-feed"></div>
+
+        <div id="stats-panel">
+            <div style="font-weight:bold; margin-bottom:4px; font-size: 14px; color:#f1c40f;">LV. <span id="hero-lvl">1</span> <span id="hero-name">Hunter</span></div>
+            <div class="bar-wrap"><div class="hp-fill" id="hud-hp"></div><div class="bar-txt" id="text-hp"></div></div>
+            <div class="bar-wrap"><div class="mp-fill" id="hud-mp"></div><div class="bar-txt" id="text-mp"></div></div>
+        </div>
+
+        <div class="hud-panel">
+            <div class="skill-box" id="skill-j"><div class="key-hint">J</div><div class="skill-name">Đánh</div></div>
+            <div class="skill-box" id="skill-k"><div class="key-hint">K</div><div class="skill-name">Tốc Độ</div><div class="cooldown-text" id="cd-k"></div></div>
+            <div class="skill-box" id="skill-l"><div class="key-hint">L</div><div class="skill-name">Lướt</div><div class="cooldown-text" id="cd-l"></div></div>
+            <div class="skill-box" id="skill-u"><div class="key-hint">U</div><div class="skill-name">Ám Khí</div><div class="cooldown-text" id="cd-u"></div></div>
+            <div class="skill-box" id="skill-i" style="border-color: #f1c40f;"><div class="key-hint">I</div><div class="skill-name">ULTIMATE</div><div class="cooldown-text" id="cd-i"></div></div>
+        </div>
+
+        <div id="minimap-container"><canvas id="minimap"></canvas></div>
+    </div>
+
+    <!-- Start Menu -->
+    <div id="start-menu" class="overlay">
+        <h1>Bão Phi Tiêu 2</h1>
+        <div style="background:rgba(255,255,255,0.1); padding:20px; border-radius:10px; max-width:500px; line-height:1.6;">
+            <p><strong>Điều khiển:</strong> WASD để Di chuyển.</p>
+            <p><strong>Chiến đấu:</strong> 
+                <span style="color:#f1c40f">J</span> (Đánh), 
+                <span style="color:#f1c40f">K, L, U</span> (Kỹ năng), 
+                <span style="color:#e74c3c">I</span> (Chiêu cuối)
+            </p>
+            <p><strong>Mục tiêu:</strong> Phá hủy Nhà Chính (Core) của địch.</p>
+            <p><em>Mẹo: Mỗi 3 đợt lính sẽ có Xe Pháo xuất hiện.</em></p>
+        </div>
+        <button class="btn" onclick="startGame()">VÀO TRẬN</button>
+    </div>
+
+    <!-- End Screen -->
+    <div id="end-screen" class="overlay hidden">
+        <h1 id="end-title">CHIẾN THẮNG</h1>
+        <p id="end-reason" style="font-size: 20px; margin-bottom: 20px;"></p>
+        <button class="btn" onclick="location.reload()">CHƠI LẠI</button>
+    </div>
+
+<script>
+/**
+ * STORM OF DARTS ENGINE v2.0
+ */
+
+// --- CONFIG ---
+const CFG = {
+    mapSize: 2800,
+    matchTime: 900, // 15 mins
+    waveTime: 30,   // Creep wave every 30s
+    colors: { blue: '#3498db', red: '#e74c3c', ground: '#1e1e1e', lane: '#2c2c2c' }
+};
+
+// --- UTILS ---
+const V2 = {
+    add: (a,b) => ({x:a.x+b.x, y:a.y+b.y}),
+    sub: (a,b) => ({x:a.x-b.x, y:a.y-b.y}),
+    len: v => Math.hypot(v.x, v.y),
+    norm: v => { const l=Math.hypot(v.x,v.y); return l===0 ? {x:0,y:0} : {x:v.x/l, y:v.y/l}; },
+    dist: (a,b) => Math.hypot(a.x-b.x, a.y-b.y),
+    scale: (v,s) => ({x:v.x*s, y:v.y*s})
+};
+const Col = (a, ra, b, rb) => (a.x-b.x)**2 + (a.y-b.y)**2 < (ra+rb)**2;
+
+// --- AUDIO ---
+const Audio = {
+    ctx: null,
+    init: () => { if(!Audio.ctx) Audio.ctx = new (window.AudioContext||window.webkitAudioContext)(); },
+    play: (freq, type, dur, vol=0.1) => {
+        if(!Audio.ctx) return;
+        const o=Audio.ctx.createOscillator(), g=Audio.ctx.createGain();
+        o.type=type; o.frequency.value=freq;
+        g.gain.setValueAtTime(vol, Audio.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.01, Audio.ctx.currentTime+dur);
+        o.connect(g); g.connect(Audio.ctx.destination);
+        o.start(); o.stop(Audio.ctx.currentTime+dur);
+    },
+    sfx: {
+        shoot: () => Audio.play(300, 'triangle', 0.1),
+        hit: () => Audio.play(100, 'sawtooth', 0.1, 0.2),
+        skill: () => Audio.play(600, 'sine', 0.3, 0.2),
+        ice: () => Audio.play(800, 'square', 0.2, 0.1), // High pitch for ice
+        ult: () => Audio.play(150, 'sawtooth', 1.0, 0.3),
+        die: () => Audio.play(50, 'sawtooth', 0.5, 0.4)
+    }
+};
+
+// --- CLASSES ---
+class Ent {
+    constructor(x,y,r,team) {
+        this.pos = {x,y}; this.r = r; this.team = team;
+        this.dead = false; this.id = Math.random();
+    }
+}
+
+class Unit extends Ent {
+    constructor(x,y,r,team,hp,mspd) {
+        super(x,y,r,team);
+        this.maxHp = this.hp = hp; this.mspd = mspd;
+        this.lvl = 1; this.xp = 0;
+        this.atkCd = 0; this.atkSpd = 1.0; this.range = 100; this.dmg = 10;
+        this.stun = 0; this.slow = 0;
+        this.facing = {x:1, y:0};
+    }
+    hit(amt, src) {
+        if(this.dead) return;
+        this.hp -= amt;
+        Game.txt(Math.floor(amt), this.pos.x, this.pos.y, this.team===0?'#e74c3c':'#fff');
+        if(this.hp <= 0) { this.hp=0; this.die(src); }
+    }
+    die(src) {
+        this.dead = true; Audio.sfx.die();
+        if(src && src.gainXp) {
+            src.gainXp(this.xpVal||20);
+            Game.feed(src, this);
+        }
+    }
+    gainXp(amt) {
+        if(this.lvl >= 18) return;
+        this.xp += amt;
+        if(this.xp >= this.lvl*100) {
+            this.xp -= this.lvl*100; this.lvl++;
+            this.maxHp += 80; this.hp = this.maxHp; this.dmg += 8;
+            Game.txt("LEVEL UP!", this.pos.x, this.pos.y-30, '#f1c40f', 20);
+        }
+    }
+    update(dt) {
+        if(this.dead) return;
+        if(this.stun>0) this.stun -= dt;
+        if(this.slow>0) this.slow -= dt;
+        if(this.atkCd>0) this.atkCd -= dt;
+        if(this.hp < this.maxHp) this.hp += (this.maxHp*0.005)*dt; // Regen
+    }
+    move(dx, dy, dt) {
+        if(this.stun>0) return;
+        let spd = this.mspd * (this.slow>0 ? 0.5 : 1);
+        this.pos.x += dx*spd*dt; this.pos.y += dy*spd*dt;
+        if(Math.abs(dx)>0.01 || Math.abs(dy)>0.01) this.facing = V2.norm({x:dx, y:dy});
+        this.pos.x = Math.max(0, Math.min(CFG.mapSize, this.pos.x));
+        this.pos.y = Math.max(0, Math.min(CFG.mapSize, this.pos.y));
+    }
+}
+
+class Hero extends Unit {
+    constructor(x,y,team,type) {
+        super(x,y,22,team,700,210);
+        this.type = type;
+        this.mana = 200; this.maxMana = 200; this.xpVal = 300;
+        this.cd = {k:0, l:0, u:0, i:0};
+        this.maxCd = {k:6, l:8, u:10, i:50};
+        
+        // AI props
+        this.aiState = 'FARM';
+        this.lane = 1; 
+
+        if(type==='hunter') {
+            this.name = "Dart Hunter";
+            this.range = 420; this.atkSpd = 1.8; this.dmg = 45;
+        } else {
+            this.name = "Frost Archer";
+            this.range = 380; this.atkSpd = 1.3; this.dmg = 55;
+        }
+    }
+    update(dt) {
+        super.update(dt);
+        if(this.dead) return;
+        if(this.mana < this.maxMana) this.mana += 8*dt;
+        for(let k in this.cd) if(this.cd[k]>0) this.cd[k] -= dt;
+    }
+    cast(key) {
+        if(this.dead || this.stun>0 || this.cd[key]>0) return;
+        let cost = {k:30, l:40, u:50, i:100}[key];
+        if(this.mana < cost) return;
+
+        let used = false;
+        
+        // --- SKILL SETS ---
+        if(this.type === 'hunter') {
+            if(key==='k') { // Speed
+                this.atkCd = 0; this.mspd += 100; setTimeout(()=>this.mspd-=100, 2000);
+                Game.fx(this.pos.x, this.pos.y, '#ff9', 10);
+                used = true;
+            } else if(key==='l') { // Roll
+                let d = V2.scale(this.facing, 180);
+                this.pos = V2.add(this.pos, d);
+                Game.fx(this.pos.x, this.pos.y, '#fff', 5);
+                used = true;
+            } else if(key==='u') { // Heavy Dart
+                Game.proj(this, this.facing, 800, this.dmg*1.8, 600, 'mark');
+                used = true;
+            } else if(key==='i') { // Barrage
+                this.stun = 0.5;
+                for(let i=0; i<8; i++) setTimeout(() => {
+                    let spread = (Math.random()-0.5)*0.4;
+                    let dir = {x:Math.cos(spread)*this.facing.x - Math.sin(spread)*this.facing.y,
+                               y:Math.sin(spread)*this.facing.x + Math.cos(spread)*this.facing.y};
+                    Game.proj(this, dir, 900, this.dmg, 700, 'gold');
+                }, i*80);
+                used = true;
+            }
+        } 
+        else if(this.type === 'frost') {
+            if(key==='k') { // Frost Shot (Line Dmg + Slow)
+                Game.proj(this, this.facing, 600, this.dmg*1.2, 550, 'frost_slow');
+                Audio.sfx.ice();
+                used = true;
+            } else if(key==='l') { // Ice Slide (Dash Backwards)
+                let back = V2.scale(this.facing, -150);
+                this.pos = V2.add(this.pos, back);
+                Game.fx(this.pos.x, this.pos.y, '#aaf', 8);
+                used = true;
+            } else if(key==='u') { // Ice Trap (Stun)
+                Game.proj(this, this.facing, 500, this.dmg, 450, 'frost_root');
+                used = true;
+            } else if(key==='i') { // Absolute Zero (Big Beam)
+                this.stun = 0.8; // Channeling
+                Game.txt("CASTING ULT!", this.pos.x, this.pos.y-40, '#0ff', 16);
+                setTimeout(() => {
+                    if(!this.dead) {
+                        Game.proj(this, this.facing, 1000, this.dmg*5, 1200, 'frost_ult');
+                        Audio.sfx.ult();
+                    }
+                }, 600);
+                used = true;
+            }
+        }
+
+        if(used) {
+            this.mana -= cost; this.cd[key] = this.maxCd[key];
+            if(key!=='i') Audio.sfx.skill();
+        }
+    }
+    atk() {
+        if(this.atkCd>0 || this.stun>0) return;
+        Game.proj(this, this.facing, 650, this.dmg, this.range, 'aa');
+        this.atkCd = 1/this.atkSpd;
+        Audio.sfx.shoot();
+    }
+}
+
+class Minion extends Unit {
+    constructor(x,y,team,lane,type) {
+        super(x,y,10,team,0,0);
+        this.lane = lane; this.wp = 0;
+        // Types: 0=Melee, 1=Ranged, 2=Siege
+        this.mType = type;
+        if(type===0) { this.maxHp=180; this.dmg=12; this.range=40; this.mspd=110; this.xpVal=15; }
+        else if(type===1) { this.maxHp=120; this.dmg=20; this.range=220; this.mspd=110; this.xpVal=15; }
+        else { this.maxHp=450; this.dmg=45; this.range=280; this.mspd=90; this.r=16; this.xpVal=40; } // Siege
+        this.hp = this.maxHp;
+    }
+    update(dt) {
+        super.update(dt);
+        if(this.dead) return;
+        
+        // AI
+        let t = Game.near(this, this.range + 50);
+        if(t) {
+            if(this.atkCd<=0) {
+                if(this.range > 50) Game.proj(this, V2.norm(V2.sub(t.pos,this.pos)), 450, this.dmg, this.range, 'aa');
+                else t.hit(this.dmg, this);
+                this.atkCd = 1.5;
+            }
+        } else {
+            // Move lane
+            let path = World.lanes[this.lane];
+            let tidx = this.team===0 ? this.wp : (path.length-1-this.wp);
+            if(tidx>=0 && tidx<path.length) {
+                let tar = path[tidx];
+                if(V2.dist(this.pos, tar) < 15) this.wp++;
+                else {
+                    let d = V2.norm(V2.sub(tar, this.pos));
+                    this.move(d.x, d.y, dt);
+                }
+            } else {
+                // To Core
+                let core = this.team===0?Game.redCore:Game.blueCore;
+                if(core && !core.dead) {
+                    let d = V2.norm(V2.sub(core.pos, this.pos));
+                    this.move(d.x, d.y, dt);
+                }
+            }
+        }
+    }
+}
+
+class Proj extends Ent {
+    constructor(src, dir, spd, dmg, maxD, type) {
+        super(src.pos.x, src.pos.y, 4, src.team);
+        this.dir = dir; this.spd = spd; this.dmg = dmg; 
+        this.maxD = maxD; this.trv = 0; this.type = type;
+        this.src = src;
+    }
+    update(dt) {
+        let d = this.spd*dt;
+        this.pos.x += this.dir.x*d; this.pos.y += this.dir.y*d;
+        this.trv += d;
+        if(this.trv >= this.maxD) this.dead = true;
+        
+        let t = Game.hit(this);
+        if(t) {
+            this.dead = true;
+            t.hit(this.dmg, this.src);
+            Audio.sfx.hit();
+            Game.fx(this.pos.x, this.pos.y, this.team===0?'#aaf':'#faa', 4);
+            // Effects
+            if(this.type==='frost_slow') { t.slow = 2.0; Game.txt("SLOW", t.pos.x, t.pos.y-20, '#0ff'); }
+            if(this.type==='frost_root') { t.stun = 1.2; Game.txt("ROOT", t.pos.x, t.pos.y-20, '#0ff'); }
+            if(this.type==='mark') t.hit(this.dmg*0.2, this.src); // Bonus dmg
+        }
+    }
+}
+
+// --- WORLD ---
+const World = {
+    lanes: [],
+    init: () => {
+        let sz = CFG.mapSize, mid = sz/2;
+        // Top
+        World.lanes[0] = [{x:200,y:mid}, {x:200,y:200}, {x:sz-200,y:200}, {x:sz-200,y:mid}];
+        // Mid
+        World.lanes[1] = [{x:200,y:mid}, {x:mid,y:mid}, {x:sz-200,y:mid}];
+        // Bot
+        World.lanes[2] = [{x:200,y:mid}, {x:200,y:sz-200}, {x:sz-200,y:sz-200}, {x:sz-200,y:mid}];
+    }
+};
+
+// --- AI BRAIN ---
+const AI = {
+    tick: (bot, dt) => {
+        if(bot.dead) return;
+        
+        // 1. Scan
+        let targets = Game.units.filter(u => u.team!==bot.team && !u.dead);
+        // Find Hero first, then Unit
+        let enemyHero = targets.find(u => u instanceof Hero && V2.dist(bot.pos, u.pos) < 700);
+        let target = enemyHero || targets.find(u => V2.dist(bot.pos, u.pos) < 500);
+
+        let dist = target ? V2.dist(bot.pos, target.pos) : 9999;
+        let isSafe = bot.hp > bot.maxHp * 0.4;
+
+        // 2. State Machine
+        if(target && dist < 700) {
+            bot.aiState = 'COMBAT';
+            bot.facing = V2.norm(V2.sub(target.pos, bot.pos));
+            
+            // --- COMBAT LOGIC ---
+            
+            // A. Ultimate (Kill confirm or Big Damage)
+            if(enemyHero && bot.cd.i <= 0 && enemyHero.hp < 600) {
+                bot.cast('i');
+            }
+            
+            // B. Defense (Slide back if too close)
+            else if(dist < 250 && bot.cd.l <= 0) {
+                bot.cast('l'); // Dash back
+            }
+            
+            // C. Control (Root if chasing or engaging)
+            else if(dist < 500 && bot.cd.u <= 0 && Math.random()<0.05) {
+                bot.cast('u');
+            }
+            
+            // D. Poke (Skill K)
+            else if(bot.cd.k <= 0 && Math.random()<0.03) {
+                bot.cast('k');
+            }
+            
+            // E. Basic Attack & Move
+            else {
+                if(dist > bot.range - 50) {
+                    // Kite forward
+                    bot.move(bot.facing.x, bot.facing.y, dt);
+                } else {
+                    // Stand and Shoot
+                    bot.atk();
+                    // Jitter movement
+                    if(Math.random()<0.05) bot.move(Math.random()-0.5, Math.random()-0.5, dt);
+                }
+            }
+
+        } else if(!isSafe) {
+            bot.aiState = 'RETREAT';
+            let base = bot.team===0 ? {x:200,y:CFG.mapSize/2} : {x:CFG.mapSize-200, y:CFG.mapSize/2};
+            let d = V2.norm(V2.sub(base, bot.pos));
+            bot.move(d.x, d.y, dt);
+            if(bot.cd.l<=0) bot.cast('l'); // Dash home
+        } else {
+            bot.aiState = 'FARM';
+            // Follow Lane
+            let core = bot.team===0 ? Game.redCore : Game.blueCore;
+            let d = V2.norm(V2.sub(core.pos, bot.pos));
+            
+            // Simple lane correction (Magnet to Y)
+            let laneY = (bot.lane===0) ? 200 : (bot.lane===2 ? CFG.mapSize-200 : CFG.mapSize/2);
+            // Only magnet if X is middle-ish
+            if(bot.pos.x > 300 && bot.pos.x < CFG.mapSize-300) {
+                if(Math.abs(bot.pos.y - laneY) > 100) d.y += (laneY - bot.pos.y)*0.005;
+            }
+
+            let fd = V2.norm(d);
+            bot.move(fd.x, fd.y, dt);
+        }
+    }
+};
+
+// --- GAME ---
+const Game = {
+    cvs: document.getElementById('gameCanvas'),
+    ctx: document.getElementById('gameCanvas').getContext('2d'),
+    units: [], projs: [], fxq: [],
+    run: false, time: 0, waveT: 28, waveCount: 0,
+    cam: {x:0, y:0},
+    keys: {}, input: {x:0,y:0},
+    lastTime: 0,
+    
+    init: () => {
+        Game.resize(); window.addEventListener('resize', Game.resize);
+        World.init();
+        
+        window.onkeydown = e => Game.keys[e.key.toLowerCase()] = true;
+        window.onkeyup = e => Game.keys[e.key.toLowerCase()] = false;
+        
+        requestAnimationFrame(Game.loop);
+    },
+    resize: () => { Game.cvs.width=window.innerWidth; Game.cvs.height=window.innerHeight; },
+    
+    start: () => {
+        Game.run = true; Game.units=[]; Game.projs=[]; Game.fxq=[]; Game.time=0;
+        Game.lastTime = performance.now();
+        document.getElementById('start-menu').classList.add('hidden');
+        document.getElementById('end-screen').classList.add('hidden');
+        
+        let my = CFG.mapSize/2;
+        // Cores
+        Game.blueCore = new Unit(150, my, 60, 0, 4000, 0); Game.blueCore.name="Blue Core";
+        Game.redCore = new Unit(CFG.mapSize-150, my, 60, 1, 4000, 0); Game.redCore.name="Red Core";
+        Game.units.push(Game.blueCore, Game.redCore);
+        
+        // Towers
+        [[300, 200], [600, my], [300, CFG.mapSize-200]].forEach(p => Game.units.push(new Unit(p[0],p[1],30,0,1500,0))); // Blue
+        [[CFG.mapSize-300, 200], [CFG.mapSize-600, my], [CFG.mapSize-300, CFG.mapSize-200]].forEach(p => Game.units.push(new Unit(p[0],p[1],30,1,1500,0))); // Red
+        
+        // Towers config
+        Game.units.forEach(u => {
+            if(u.mspd===0 && u.r===30) { u.dmg=80; u.range=320; u.atkSpd=0.8; u.name="Tower"; }
+        });
+
+        // Heroes
+        Game.p = new Hero(250, my, 0, 'hunter'); Game.units.push(Game.p);
+        
+        // Bots
+        let b1 = new Hero(250, 200, 0, 'frost'); b1.lane=0; b1.name="Ally Top"; Game.units.push(b1);
+        let b2 = new Hero(250, CFG.mapSize-200, 0, 'frost'); b2.lane=2; b2.name="Ally Bot"; Game.units.push(b2);
+        
+        let e1 = new Hero(CFG.mapSize-250, my, 1, 'frost'); e1.lane=1; e1.name="Enemy Mid"; Game.units.push(e1);
+        let e2 = new Hero(CFG.mapSize-250, 200, 1, 'frost'); e2.lane=0; e2.name="Enemy Top"; Game.units.push(e2);
+        let e3 = new Hero(CFG.mapSize-250, CFG.mapSize-200, 1, 'frost'); e3.lane=2; e3.name="Enemy Bot"; Game.units.push(e3);
+    },
+
+    loop: (now) => {
+        requestAnimationFrame(Game.loop);
+        if(!Game.run) return;
+        
+        if (!Game.lastTime) Game.lastTime = now;
+        let dt = (now - Game.lastTime) / 1000;
+        Game.lastTime = now;
+        
+        // Clamp dt to avoid huge jumps
+        if (dt > 0.1) dt = 0.1;
+        if (dt < 0) dt = 0;
+
+        Game.time += dt;
+        
+        // Input
+        let dx=0, dy=0;
+        if(Game.keys['w']) dy=-1; if(Game.keys['s']) dy=1;
+        if(Game.keys['a']) dx=-1; if(Game.keys['d']) dx=1;
+        if(!Game.p.dead) {
+            Game.p.move(dx, dy, dt);
+            if(Game.keys['j']) Game.p.atk();
+            if(Game.keys['k']) Game.p.cast('k');
+            if(Game.keys['l']) Game.p.cast('l');
+            if(Game.keys['u']) Game.p.cast('u');
+            if(Game.keys['i']) Game.p.cast('i');
+        }
+
+        // Wave Spawn
+        Game.waveT += dt;
+        if(Game.waveT >= CFG.waveTime) {
+            Game.waveT = 0; Game.waveCount++;
+            let siege = (Game.waveCount % 3 === 0);
+            if(siege) Game.txt("SIEGE WAVE!", Game.p.pos.x, Game.p.pos.y-100, '#f39c12', 30);
+            
+            [0,1,2].forEach(l => {
+                let start = World.lanes[l][0], end = World.lanes[l][World.lanes[l].length-1];
+                for(let i=0; i<3; i++) Game.units.push(new Minion(start.x+i*5, start.y, 0, l, 0)); // Blue Melee
+                Game.units.push(new Minion(start.x, start.y, 0, l, 1)); // Blue Range
+                if(siege) Game.units.push(new Minion(start.x, start.y, 0, l, 2)); // Blue Siege
+
+                for(let i=0; i<3; i++) Game.units.push(new Minion(end.x-i*5, end.y, 1, l, 0)); // Red Melee
+                Game.units.push(new Minion(end.x, end.y, 1, l, 1));
+                if(siege) Game.units.push(new Minion(end.x, end.y, 1, l, 2));
+            });
+        }
+
+        // Logic
+        Game.units.forEach(u => {
+            if(u.dead) return;
+            u.update(dt);
+            if(u instanceof Hero && u !== Game.p) AI.tick(u, dt);
+            
+            // Tower Logic
+            if(u.mspd === 0 && u.r === 30 && u.atkCd <= 0) {
+                let t = Game.near(u, u.range);
+                if(t) {
+                    Game.proj(u, V2.norm(V2.sub(t.pos, u.pos)), 400, u.dmg, u.range, 'tower');
+                    u.atkCd = 1.2;
+                }
+            }
+        });
+        
+        Game.projs.forEach(p => p.update(dt));
+        Game.projs = Game.projs.filter(p => !p.dead);
+        
+        // Particles
+        Game.fxq.forEach(p => { p.life-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; });
+        Game.fxq = Game.fxq.filter(p => p.life>0);
+        
+        // Respawn check
+        Game.units.forEach(u => {
+            if(u.dead && u instanceof Hero) {
+                if(!u.rt) u.rt = 5 + u.lvl*2;
+                u.rt -= dt;
+                if(u.rt <= 0) {
+                    u.dead = false; u.hp = u.maxHp; u.mana = u.maxMana; u.rt = null;
+                    u.pos = u.team===0 ? {x:200,y:CFG.mapSize/2} : {x:CFG.mapSize-200, y:CFG.mapSize/2};
+                }
+                if(u === Game.p) document.getElementById('end-reason').innerText = "Hồi sinh trong: " + Math.ceil(u.rt);
+            }
+        });
+        
+        // Win
+        if(Game.blueCore.dead) Game.over("THẤT BẠI");
+        if(Game.redCore.dead) Game.over("CHIẾN THẮNG");
+
+        // Camera
+        Game.cam.x = Math.max(0, Math.min(CFG.mapSize-Game.cvs.width, Game.p.pos.x - Game.cvs.width/2));
+        Game.cam.y = Math.max(0, Math.min(CFG.mapSize-Game.cvs.height, Game.p.pos.y - Game.cvs.height/2));
+
+        Game.draw();
+        Game.hud();
+    },
+
+    draw: () => {
+        let ctx = Game.ctx;
+        ctx.fillStyle = CFG.colors.ground;
+        ctx.fillRect(0,0,Game.cvs.width, Game.cvs.height);
+        
+        ctx.save();
+        ctx.translate(-Game.cam.x, -Game.cam.y);
+        
+        // Lanes
+        ctx.strokeStyle = CFG.colors.lane; ctx.lineWidth = 140; ctx.lineCap='round'; ctx.lineJoin='round';
+        World.lanes.forEach(l => {
+            ctx.beginPath(); ctx.moveTo(l[0].x, l[0].y);
+            for(let i=1;i<l.length;i++) ctx.lineTo(l[i].x, l[i].y);
+            ctx.stroke();
+        });
+
+        // Units
+        Game.units.forEach(u => {
+            if(u.dead) return;
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.beginPath(); ctx.arc(u.pos.x, u.pos.y+5, u.r, 0, 7); ctx.fill();
+
+            // Body
+            ctx.fillStyle = u.team===0 ? CFG.colors.blue : CFG.colors.red;
+            // Bot special color override
+            if(u instanceof Hero && u.type === 'frost') ctx.fillStyle = u.team===0 ? '#5dade2' : '#c0392b';
+
+            if(u instanceof Minion) {
+                if(u.mType===2) { ctx.fillRect(u.pos.x-12, u.pos.y-12, 24, 24); } // Siege
+                else { ctx.beginPath(); ctx.arc(u.pos.x, u.pos.y, u.r, 0, 7); ctx.fill(); }
+            } else if(u instanceof Hero) {
+                ctx.beginPath(); ctx.arc(u.pos.x, u.pos.y, u.r, 0, 7); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth=2; ctx.stroke();
+                // Name
+                ctx.fillStyle='#fff'; ctx.font='10px Arial'; ctx.textAlign='center';
+                ctx.fillText(u.name, u.pos.x, u.pos.y-35);
+                // Status
+                if(u.stun>0) ctx.fillText("STUNNED", u.pos.x, u.pos.y-48);
+            } else {
+                // Tower/Core
+                ctx.fillRect(u.pos.x-u.r, u.pos.y-u.r, u.r*2, u.r*2);
+            }
+            
+            // HP Bar
+            let w = u.r*2;
+            ctx.fillStyle='#000'; ctx.fillRect(u.pos.x-w/2, u.pos.y-u.r-10, w, 5);
+            ctx.fillStyle= u.team===0?'#2ecc71':'#e74c3c';
+            ctx.fillRect(u.pos.x-w/2, u.pos.y-u.r-10, w*(u.hp/u.maxHp), 5);
+        });
+
+        // Projs
+        Game.projs.forEach(p => {
+            ctx.save(); ctx.translate(p.pos.x, p.pos.y);
+            let rot = Math.atan2(p.dir.y, p.dir.x);
+            ctx.rotate(rot);
+            ctx.fillStyle = p.team===0?'#aaf':'#faa';
+            
+            if(p.type.includes('frost')) {
+                ctx.shadowBlur=10; ctx.shadowColor='#0ff'; ctx.fillStyle='#e0ffff';
+            }
+            if(p.type==='frost_ult') ctx.fillRect(-30, -15, 60, 30);
+            else ctx.fillRect(-8, -3, 16, 6);
+            
+            ctx.restore();
+        });
+
+        // FX
+        Game.fxq.forEach(p => {
+            if(p.txt) {
+                ctx.fillStyle = p.c; ctx.font = 'bold 16px Arial';
+                ctx.globalAlpha = p.life;
+                ctx.fillText(p.txt, p.x, p.y);
+            } else {
+                ctx.fillStyle = p.c; ctx.globalAlpha = p.life;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.sz, 0, 7); ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        });
+
+        ctx.restore();
+        
+        // Minimap
+        let m = document.getElementById('minimap'), mx = m.getContext('2d');
+        m.width=160; m.height=160;
+        let s = 160/CFG.mapSize;
+        mx.fillStyle='#111'; mx.fillRect(0,0,160,160);
+        Game.units.forEach(u => {
+            if(u.dead) return;
+            mx.fillStyle = u.team===0 ? '#3498db' : '#e74c3c';
+            if(u instanceof Hero) { mx.fillStyle='#fff'; mx.beginPath(); mx.arc(u.pos.x*s, u.pos.y*s, 3, 0, 7); mx.fill(); }
+            else if(u.maxHp > 1000) { mx.fillRect(u.pos.x*s-2, u.pos.y*s-2, 4, 4); }
+            else { mx.fillRect(u.pos.x*s-1, u.pos.y*s-1, 2, 2); }
+        });
+        mx.strokeStyle='#fff'; mx.strokeRect(Game.cam.x*s, Game.cam.y*s, Game.cvs.width*s, Game.cvs.height*s);
+    },
+
+    hud: () => {
+        let p = Game.p;
+        document.getElementById('hud-hp').style.width = (p.hp/p.maxHp*100)+'%';
+        document.getElementById('text-hp').innerText = Math.floor(p.hp);
+        document.getElementById('hud-mp').style.width = (p.mana/p.maxMana*100)+'%';
+        document.getElementById('text-mp').innerText = Math.floor(p.mana);
+        document.getElementById('hero-lvl').innerText = p.lvl;
+        
+        document.getElementById('score-blue').innerText = Game.units.filter(u=>u.dead && u.team==1 && u instanceof Hero).length; // Dummy logic for score
+        
+        let min = Math.floor(Game.time/60), sec = Math.floor(Game.time%60);
+        document.getElementById('timer').innerText = `${min}:${sec<10?'0'+sec:sec}`;
+        
+        const updCd = (k, id) => {
+            let el = document.getElementById(id), v = Math.ceil(p.cd[k]);
+            if(v>0) { el.classList.add('cooldown'); el.querySelector('.cooldown-text').innerText=v; }
+            else { el.classList.remove('cooldown'); el.querySelector('.cooldown-text').innerText=''; }
+        };
+        updCd('k','skill-k'); updCd('l','skill-l'); updCd('u','skill-u'); updCd('i','skill-i');
+        
+        document.getElementById('skill-j').style.transform = Game.keys['j'] ? 'scale(0.9)' : 'scale(1)';
+    },
+
+    near: (src, r) => {
+        let t=null, d=r;
+        Game.units.forEach(u => {
+            if(u.team!==src.team && !u.dead) {
+                let dist = V2.dist(src.pos, u.pos);
+                if(dist < d+u.r) { d=dist; t=u; }
+            }
+        });
+        return t;
+    },
+    hit: (proj) => {
+        return Game.units.find(u => u.team!==proj.team && !u.dead && Col(proj.pos, 4, u.pos, u.r));
+    },
+    proj: (s,d,sp,dm,mx,tp) => Game.projs.push(new Proj(s,d,sp,dm,mx,tp)),
+    fx: (x,y,c,n) => {
+        for(let i=0;i<n;i++) Game.fxq.push({x,y,vx:(Math.random()-0.5)*150, vy:(Math.random()-0.5)*150, life:0.8, c, sz:Math.random()*3+1});
+    },
+    txt: (t,x,y,c,s) => Game.fxq.push({txt:t, x, y, vx:0, vy:-40, life:1.2, c, sz:s}),
+    feed: (k, v) => {
+        let d = document.createElement('div'); d.className='kill-msg';
+        d.innerHTML = `<span style="color:${k.team===0?'#3498db':'#e74c3c'}">${k.name}</span> ⚔️ <span style="color:#aaa">${v.name}</span>`;
+        document.getElementById('kill-feed').appendChild(d);
+        setTimeout(()=>d.remove(), 4000);
+    },
+    over: (res) => {
+        Game.run=false; 
+        document.getElementById('end-screen').classList.remove('hidden');
+        document.getElementById('end-title').innerText = res;
+    }
+};
+
+Game.init();
+function startGame() { Audio.init(); Game.start(); }
+
+</script>
+</body>
+</html>
+ 
